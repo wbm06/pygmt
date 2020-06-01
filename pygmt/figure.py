@@ -6,13 +6,15 @@ from tempfile import TemporaryDirectory
 import base64
 
 try:
-    from IPython.display import Image
+    import IPython
+
+    HAS_IPYTHON = True
 except ImportError:
-    Image = None
+    HAS_IPYTHON = False
 
 from .clib import Session
 from .base_plotting import BasePlotting
-from .exceptions import GMTError, GMTInvalidInput
+from .exceptions import GMTInvalidInput
 from .helpers import (
     build_arg_string,
     fmt_docstring,
@@ -23,9 +25,63 @@ from .helpers import (
 )
 
 
+def check_inline_display():
+    """
+    Check if inline display is available for different running environments
+    """
+    if HAS_IPYTHON:
+        interactive_shell = IPython.get_ipython().__class__.__name__
+        if interactive_shell == "NoneType":
+            # no InteractiveShell instance registered.
+            # Possible cases:
+            # 1. python filenam.py
+            # 2. run in a Python shell
+            SHOW_CONFIG["inline"] = False
+            SHOW_CONFIG["external"] = True
+        elif interactive_shell == "TerminalInteractiveShell":
+            # Possible cases:
+            # 1. ipython filename.py
+            # 2. run in a IPython terminal
+            SHOW_CONFIG["inline"] = False
+            SHOW_CONFIG["external"] = True
+        elif interactive_shell == "ZMQInteractiveShell":
+            # Possible cases:
+            # 1. In a Jupyter notebook or lab
+            # 2. In a Jupyter Qt console
+            # 3. In a Jupyter console (actually opens externally)
+            SHOW_CONFIG["inline"] = True
+            SHOW_CONFIG["external"] = False
+        else:
+            # all other uncaught cases
+            SHOW_CONFIG["inline"] = False
+            SHOW_CONFIG["external"] = True
+            print(
+                f"Unrecognized interactive shell '{interactive_shell}'. "
+                "Fall back to open the preview in the default viewer. "
+                "Please report to PyGMT developers."
+            )
+    else:  # IPython not available
+        SHOW_CONFIG["inline"] = False
+        SHOW_CONFIG["external"] = True
+
+    print(f"IPython is available: {HAS_IPYTHON}")
+    print(f"interactive_shell: {interactive_shell}")
+    print(f"inline_display: {SHOW_CONFIG['inline']}")
+
+
 # A registry of all figures that have had "show" called in this session.
 # This is needed for the sphinx-gallery scraper in pygmt/sphinx_gallery.py
 SHOWED_FIGURES = []
+
+# Internal variable to disable preview in external viewers
+SHOW_CONFIG = {
+    "external": True,  # Open in external PDF viewer or web browser
+    "inline": True,  # Inline display in Jupyter notebook and Qt console
+    "dpi": 200,  # default dpi for inline display
+}
+
+SHOW_CONFIG["external"] = os.environ.get("PYGMT_DISABLE_EXTERNAL_DISPLAY", False)
+check_inline_display()
 
 
 class Figure(BasePlotting):
@@ -57,7 +113,7 @@ class Figure(BasePlotting):
     >>> fig = Figure()
     >>> fig.basemap(region='JP', projection="M3i", frame=True)
     >>> # The fig.region attribute shows the WESN bounding box for the figure
-    >>> print(', '.join('{:.2f}'.format(i)  for i in fig.region))
+    >>> print(', '.join('{:.2f}'.format(i) for i in fig.region))
     122.94, 145.82, 20.53, 45.52
 
     """
@@ -235,63 +291,44 @@ class Figure(BasePlotting):
         if show:
             launch_external_viewer(fname)
 
-    def show(self, dpi=300, width=500, method="static"):
+    def show(self, dpi=300, width=500):
         """
         Display a preview of the figure.
 
-        Inserts the preview in the Jupyter notebook output. You will need to
-        have IPython installed for this to work. You should have it if you are
-        using the notebook.
-
-        If ``method='external'``, makes PDF preview instead and opens it in the
-        default viewer for your operating system (falls back to the default web
-        browser). Note that the external viewer does not block the current
-        process, so this won't work in a script.
+        Inserts the preview in the Jupyter notebook output, otherwise opens it
+        in the default viewer for your operating system (falls back to the
+        default web browser). Note that the external viewer does not block the
+        current process, so this won't work in a script.
 
         Parameters
         ----------
         dpi : int
             The image resolution (dots per inch).
         width : int
-            Width of the figure shown in the notebook in pixels. Ignored if
-            ``method='external'``.
-        method : str
-            How the figure will be displayed. Options are (1) ``'static'``: PNG
-            preview (default); (2) ``'external'``: PDF preview in an external
-            program.
+            Width of the figure shown in the notebook in pixels.
 
         Returns
         -------
         img : IPython.display.Image
-            Only if ``method != 'external'``.
+            Only if in Jupyter notebook.
 
         """
         # Module level variable to know which figures had their show method
         # called. Needed for the sphinx-gallery scraper.
         SHOWED_FIGURES.append(self)
 
-        if method not in ["static", "external"]:
-            raise GMTInvalidInput("Invalid show method '{}'.".format(method))
-        if method == "external":
+        print("Debugging:")
+        print(f"inline_display: {SHOW_CONFIG['inline']}")
+        print(f"disable_external_display: {SHOW_CONFIG['external']}")
+        print("\n")
+
+        if SHOW_CONFIG["inline"]:
+            png = self._repr_png_()
+            IPython.display.display(IPython.display.Image(data=png, width=width))
+
+        if SHOW_CONFIG["external"]:
             pdf = self._preview(fmt="pdf", dpi=dpi, anti_alias=False, as_bytes=False)
             launch_external_viewer(pdf)
-            img = None
-        elif method == "static":
-            png = self._preview(
-                fmt="png", dpi=dpi, anti_alias=True, as_bytes=True, transparent=True
-            )
-            if Image is None:
-                raise GMTError(
-                    " ".join(
-                        [
-                            "Cannot find IPython.",
-                            "Make sure you have it installed",
-                            "or use 'external=True' to open in an external viewer.",
-                        ]
-                    )
-                )
-            img = Image(data=png, width=width)
-        return img
 
     def shift_origin(self, xshift=None, yshift=None):
         """
@@ -374,3 +411,19 @@ class Figure(BasePlotting):
         base64_png = base64.encodebytes(raw_png)
         html = '<img src="data:image/png;base64,{image}" width="{width}px">'
         return html.format(image=base64_png.decode("utf-8"), width=500)
+
+
+def set_display(mode):
+    """
+    Set the display mode.
+    """
+    if mode == "notebook":
+        SHOW_CONFIG["inline"] = True
+        SHOW_CONFIG["external"] = False
+    elif mode == "external":
+        SHOW_CONFIG["inline"] = False
+        SHOW_CONFIG["external"] = True
+    else:
+        raise GMTInvalidInput(
+            f'Invalid display mode {mode}, should be either "notebook" or "external".'
+        )
