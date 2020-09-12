@@ -4,6 +4,8 @@ Tests fig.basemap.
 import pytest
 
 from .. import Figure
+from ..clib import Session
+from ..helpers.testing import check_figures_equal
 from ..exceptions import GMTInvalidInput
 
 
@@ -54,15 +56,17 @@ def test_basemap_power_axis():
     return fig
 
 
-@pytest.mark.xfail(
-    reason="Baseline image not updated to use earth relief grid in GMT 6.1.0",
-)
-@pytest.mark.mpl_image_compare
+@check_figures_equal()
 def test_basemap_polar():
     "Create a polar basemap plot"
-    fig = Figure()
-    fig.basemap(R="0/360/0/1000", J="P6i", B="afg")
-    return fig
+    fig_test = Figure()
+    fig_test.basemap(R="0/360/0/1000", J="P6i", B="afg")
+
+    fig_ref = Figure()
+    with Session() as lib:
+        lib.call_module("basemap", "-R0/360/0/1000 -JP6i -Bafg")
+
+    return fig_ref, fig_test
 
 
 @pytest.mark.mpl_image_compare
