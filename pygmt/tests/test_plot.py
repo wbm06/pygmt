@@ -128,7 +128,7 @@ def test_plot_projection(data):
 
 @pytest.mark.mpl_image_compare
 def test_plot_colors(data, region):
-    "Plot the data using z as sizes"
+    "Plot the data using z as colors"
     fig = Figure()
     fig.plot(
         x=data[:, 0],
@@ -190,6 +190,57 @@ def test_plot_colors_sizes_proj(data, region):
         sizes=0.5 * data[:, 2],
         style="cc",
         cmap="copper",
+    )
+    return fig
+
+
+@pytest.mark.mpl_image_compare
+def test_plot_transparency():
+    "Plot the data with a constant transparency"
+    fig = Figure()
+    fig.basemap(region=[0, 10, 0, 10], projection="X4i", frame=True)
+    fig.plot(
+        x=np.arange(1, 10),
+        y=np.arange(1, 10),
+        style="c0.2c",
+        color="blue",
+        transparency=80.0,
+    )
+    return fig
+
+
+@pytest.mark.mpl_image_compare
+def test_plot_varying_transparency():
+    "Plot the data using z as transparency"
+    fig = Figure()
+    fig.plot(
+        x=np.arange(1, 10),
+        y=np.arange(1, 10),
+        region=[0, 10, 0, 10],
+        projection="X4i",
+        style="c0.2c",
+        color="blue",
+        transparency=np.arange(1, 10) * 10,
+        frame=True,
+    )
+    return fig
+
+
+@pytest.mark.mpl_image_compare
+def test_plot_sizes_colors_transparencies():
+    "Plot the data using z as transparency"
+    fig = Figure()
+    fig.plot(
+        x=np.arange(1, 10),
+        y=np.arange(1, 10),
+        region=[0, 10, 0, 10],
+        projection="X4i",
+        style="cc",
+        color=np.arange(1, 10) * 0.1,
+        sizes=np.arange(1, 10) * 0.1,
+        cmap="gray",
+        transparency=np.arange(1, 10) * 10,
+        frame=True,
     )
     return fig
 
